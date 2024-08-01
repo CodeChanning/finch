@@ -170,7 +170,7 @@ vmType: "vz"
 # https://github.com/lima-vm/lima/issues/1269
 rosetta: false
 # mode: used to indicate finch using dockercompat
-memory: dockercompat
+mode: dockercompat
 ```
 
 #### Windows

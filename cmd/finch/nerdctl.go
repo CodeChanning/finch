@@ -213,10 +213,6 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 			handleLoad(nc.fc, &nerdctlArgs)
 
 		case argIsEnv(arg):
-			// if notShiftEnv {
-			// 	nerdctlArgs = append(nerdctlArgs, arg)
-			// 	continue
-			// }
 			if envArgPos == -1 {
 				envArgPos = i - isDebug
 			}
@@ -316,12 +312,10 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 	limaArgs = append(limaArgs, append([]string{nerdctlCmdName}, strings.Fields(cmdName)...)...)
 
 	var envArgs []string
+	for key, val := range envVars {
+		envArgs = append(envArgs, "-e", fmt.Sprintf("%s=%s", key, val))
+	}
 
-	// // This is to fix env variables that are part of the exec commands. This is a hack, cr would need to be flushed out.
-	// for key, val := range envVars {
-	// 	strEncode := fmt.Sprintf("%s=%s", key, val)
-	// 	envArgs = append(envArgs, "-e", strEncode)
-	// }
 	if envArgPos > -1 {
 		nerdctlArgs = append(nerdctlArgs[:envArgPos], append(envArgs, nerdctlArgs[envArgPos:]...)...)
 	}
