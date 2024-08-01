@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
@@ -152,9 +153,23 @@ func initializeNerdctlCommands(
 	fc *config.Finch,
 ) []*cobra.Command {
 	nerdctlCommandCreator := newNerdctlCommandCreator(lcc, ecc, system.NewStdLib(), logger, fs, fc)
+	//append buildx to nerdctl
 	var allNerdctlCommands []*cobra.Command
 	for cmdName, cmdDescription := range nerdctlCmds {
 		allNerdctlCommands = append(allNerdctlCommands, nerdctlCommandCreator.create(cmdName, cmdDescription))
 	}
+
+	if fc.Mode == nil {
+		logrus.Warn("mode is nil")
+		logrus.Warnf("%s is mem", *fc.Memory)
+	}
+
+	if fc.Mode != nil && *fc.Mode == "dockercompat" {
+		logrus.Warn("mode is dockercompat")
+		for cmdName, cmdDescription := range dockerCompatCmds {
+			allNerdctlCommands = append(allNerdctlCommands, nerdctlCommandCreator.create(cmdName, cmdDescription))
+		}
+	}
+
 	return allNerdctlCommands
 }

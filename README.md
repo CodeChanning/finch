@@ -169,6 +169,8 @@ vmType: "vz"
 # some performance regressions, as noted in this issue:
 # https://github.com/lima-vm/lima/issues/1269
 rosetta: false
+# mode: used to indicate finch using dockercompat
+memory: dockercompat
 ```
 
 #### Windows

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
@@ -114,6 +115,8 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 		aMap                              map[string]argHandler
 		envArgPos                         int
 		isDebug                           int
+		// buildx                            bool
+		// version                           bool
 	)
 
 	alias, hasAlias := aliasMap[cmdName]
@@ -141,12 +144,16 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 			return err
 		}
 	}
-
+	// buildx = false
+	// version = false
+	// notShiftEnv := false
 	// envArgPos is used to preserve the position of first environment parameter
 	envArgPos = -1
 	// if a debug flag is passed before env arg pos we reduce the env arg pos by 1 to account for skipping debug flag
 	isDebug = 0
 	for i, arg := range args {
+		logrus.Warnf("looking at arg %s at index %d", arg, i)
+
 		// Check if command requires arg handling
 		if hasArgHandler {
 			// Check if argument for the command needs handling, sometimes it can be --file=<filename>
@@ -161,6 +168,52 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 				arg = args[i]
 			}
 		}
+
+		// prefix := "/home/vscode/.vscode-server/bin/"
+		// suffix := "/node"
+		// // Check if the string has the correct prefix and suffix
+		// if strings.HasPrefix(arg, prefix) && strings.HasSuffix(arg, suffix) {
+		// 	notShiftEnv = true
+		// }
+
+		handleCache(nc.fc, &arg, &cmdName)
+		// // Hack to handle consistency params during mounts. This is assuming no other commands or env variable will have the word consistency.
+		// // Final implementation needs to account for this is only applied on darwin OS and for mount with a dockercompat flag enabled in finch.yaml file
+		// // This probably requires a small design doc for the dockercompat flag which can be passed onto nerdctl if enabled.
+		// if strings.Contains(arg, "consistency") {
+		// 	arg = strings.Replace(arg, ",consistency=cache", "", 1)
+		// 	arg = strings.Replace(arg, ",consistency=delegated", "", 1)
+		// 	arg = strings.Replace(arg, ",consistency=consistent", "", 1)
+		// }
+
+		/**
+
+		implementation notes:
+		//finch.yaml: mode=dockercompat
+
+		//all of this is only done with dockercompat
+		//print warnings when converting
+
+		//cache:
+		//print warning when taking cout cahce options
+		//remove cahce options if GOOS=darwin & with mount & dockercompat on (mac is called darwin)
+
+		//buildx:
+		//finch buildx -> nerdctl build
+		//finch buildx build -> nerdctl build
+
+		////can have --load flag
+		////--load --> "--output=type=docker"
+
+		////version:
+		////print buildkit version
+		////nerdctl build version doesnt return buildkit version
+		////call finch command that does this
+
+		////dont worrry about notShiftEnv
+		////we dont handle env variables correctly
+		////ticket for that in finch **/
+
 		// parsing environment values from the command line may pre-fetch and
 		// consume the next argument; this loop variable will skip these pre-consumed
 		// entries from the command line
@@ -175,7 +228,20 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 				isDebug = 1
 			}
 			nc.logger.SetLevel(flog.Debug)
+
+		// This is a docker specific command which alias for --output=type=docker. This should only applied for build args.
+		// On a long term this run command potentially needs to be refactored, currently it is too hacky the way it handles the args.
+		case arg == "--load":
+			// arg_mod := "--output=type=docker"
+			// nerdctlArgs = append(nerdctlArgs, arg_mod)
+			nc.logger.Info("found --load converting to --output flag")
+			handleLoad(nc.fc, &nerdctlArgs, i)
+
 		case argIsEnv(arg):
+			// if notShiftEnv {
+			// 	nerdctlArgs = append(nerdctlArgs, arg)
+			// 	continue
+			// }
 			if envArgPos == -1 {
 				envArgPos = i - isDebug
 			}
@@ -275,12 +341,16 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 	limaArgs = append(limaArgs, append([]string{nerdctlCmdName}, strings.Fields(cmdName)...)...)
 
 	var envArgs []string
-	for key, val := range envVars {
-		envArgs = append(envArgs, "-e", fmt.Sprintf("%s=%s", key, val))
-	}
+
+	// // This is to fix env variables that are part of the exec commands. This is a hack, cr would need to be flushed out.
+	// for key, val := range envVars {
+	// 	strEncode := fmt.Sprintf("%s=%s", key, val)
+	// 	envArgs = append(envArgs, "-e", strEncode)
+	// }
 	if envArgPos > -1 {
 		nerdctlArgs = append(nerdctlArgs[:envArgPos], append(envArgs, nerdctlArgs[envArgPos:]...)...)
 	}
+
 	// Add -E to sudo command in order to preserve existing environment variables, more info:
 	// https://stackoverflow.com/questions/8633461/how-to-keep-environment-variables-when-using-sudo/8633575#8633575
 	limaArgs = append(limaArgs, nerdctlArgs...)
@@ -288,6 +358,32 @@ func (nc *nerdctlCommand) run(cmdName string, args []string) error {
 	if nc.shouldReplaceForHelp(cmdName, args) {
 		return nc.lcc.RunWithReplacingStdout([]command.Replacement{{Source: "nerdctl", Target: "finch"}}, limaArgs...)
 	}
+
+	// // Handle buildx version and build commands.
+	// // We should throw the buildkit version instead, this is just fooling dev containers atm.
+	// var limaArgs2 []string
+	// for _, arg := range limaArgs {
+	// 	if arg == "buildx" {
+	// 		buildx = true
+	// 	} else if arg == "version" && buildx {
+	// 		version = true
+	// 	} else {
+	// 		limaArgs2 = append(limaArgs2, arg)
+	// 	}
+	// }
+
+	// if version {
+	// 	fmt.Printf("github.com/docker/buildx v0.12.1-desktop.4 6996841df2f61988c2794d84d33205368f96c317")
+	// 	return nil
+	// }
+
+	// Handle buildx version and build commands.
+	skipCmd, limaArgs := handleBuildx(nc.fc, &limaArgs)
+	if skipCmd {
+		return nil
+	}
+
+	nc.logger.Info("Running nerdctl command args ", limaArgs, "  end")
 
 	return nc.lcc.Create(limaArgs...).Run()
 }
@@ -342,11 +438,77 @@ func argIsEnv(arg string) bool {
 	return false
 }
 
+func handleCache(fc *config.Finch, arg *string, cmdName *string) {
+	// Hack to handle consistency params during mounts. This is assuming no other commands or env variable will have the word consistency.
+	// Final implementation needs to account for this is only applied on darwin OS and for mount with a dockercompat flag enabled in finch.yaml file
+	// This probably requires a small design doc for the dockercompat flag which can be passed onto nerdctl if enabled.
+	if *fc.Mode == "dockercompat" && runtime.GOOS == "darwin" && *cmdName == "mount" {
+		if strings.Contains(*arg, "consistency") {
+			*arg = strings.Replace(*arg, ",consistency=cache", "", 1)
+			*arg = strings.Replace(*arg, ",consistency=delegated", "", 1)
+			*arg = strings.Replace(*arg, ",consistency=consistent", "", 1)
+		}
+	}
+}
+
+func handleLoad(fc *config.Finch, args *[]string, idx int) {
+	if *fc.Mode == "dockercompat" {
+		logrus.Warn("appending --output-type!!")
+		logrus.Warn("args before appending", args)
+		*args = append((*args), "--output=type=docker")
+		logrus.Warn("args after appending", args)
+	}
+}
+
+func handleBuildx(fc *config.Finch, limaArgs *[]string) (bool, []string) {
+	logrus.Warn("handling buildx")
+
+	buildx := false
+	skipCmd := true
+	var newLimaArgs []string
+	buildxSubcommands := []string{"bake", "create", "debug", "du", "imagetools", "inspect", "ls", "prune", "rm", "stop", "use", "version"}
+
+	if *fc.Mode != "dockercompat" {
+		return !skipCmd, *limaArgs
+	}
+
+	for idx, arg := range *limaArgs {
+		logrus.Warnf("looking at arg %s at index %d", arg, idx)
+
+		if arg == "buildx" {
+			buildx = true
+			newLimaArgs = append((*limaArgs)[:(idx)], "build")
+			logrus.Warn("buildx is not supported. using standard buildkit instead...")
+		} else if buildx {
+
+			//checking for buildx subcommands
+			//for buildx build we call nerdctl build,
+			//for any other case we print a warning message and don't run a command
+			buildxWarnMsg := "buildx %s command is not supported."
+
+			if arg == "build" {
+				continue
+			} else if slices.Contains(buildxSubcommands, arg) {
+				logrus.Warnf(buildxWarnMsg, arg)
+				return skipCmd, nil
+			} else {
+				newLimaArgs = append((*limaArgs)[:(idx)], arg)
+			}
+
+		} else {
+			newLimaArgs = append((*limaArgs)[:(idx)], arg)
+		}
+	}
+
+	return !skipCmd, newLimaArgs
+}
+
 func handleEnv(systemDeps NerdctlCommandSystemDeps, arg, arg2 string) (bool, string) {
 	var (
 		envVar string
 		skip   bool
 	)
+
 	switch arg {
 	case "-e", "--env":
 		skip = true
@@ -500,4 +662,8 @@ var nerdctlCmds = map[string]string{
 	"update":    "Update configuration of one or more containers",
 	"volume":    "Manage volumes",
 	"wait":      "Block until one or more containers stop, then print their exit codes",
+}
+
+var dockerCompatCmds = map[string]string{
+	"buildx": "build version",
 }

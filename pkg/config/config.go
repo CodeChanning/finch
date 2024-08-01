@@ -53,6 +53,8 @@ type Finch struct {
 	// Has no effect on systems where Rosetta 2 is not available (Intel/AMD64 macs, or macOS < 13.0).
 	// This setting will only be applied on vm init.
 	Rosetta *bool `yaml:"rosetta,omitempty"`
+	//mode:dockercompat
+	Mode *string `yaml:"mode,omitempty"`
 }
 
 // Nerdctl is a copy from github.com/containerd/nerdctl/cmd/nerdctl/main.go
